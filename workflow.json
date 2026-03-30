@@ -1,0 +1,266 @@
+{
+  "name": "Pricing Agent - RFP",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pricing-job",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9b651352-4d46-46c4-8933-2eba170e3e45",
+      "name": "Receive Pricing Request",
+      "webhookId": "33e48ad8-914d-4e0a-a883-1ee0173af72a"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9014bea0-a933-4ff5-a373-a54a77704cb5",
+              "name": "rfp_id",
+              "value": "={{$json[\"body\"][\"rfp_id\"]}}",
+              "type": "string"
+            },
+            {
+              "id": "64fffd3b-2a1a-4b09-a615-6e520d2fb287",
+              "name": "rfp_summary",
+              "value": "={{$json[\"body\"][\"rfp_summary\"][\"tests\"]}}",
+              "type": "array"
+            },
+            {
+              "id": "9349522f-e59e-4f1c-9785-64b5de0f0576",
+              "name": "technical_table",
+              "value": "={{$json[\"body\"][\"technical_table\"]}}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "58ec13c8-e5e4-4889-a7c2-d30920646bd4",
+      "name": "Validate input"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1cAHAnKMKizqv_nWb3Jgfhn3juN29EX-XDVycM5uD0LU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Test_Prices",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        -176
+      ],
+      "id": "f0d464fe-2729-4354-a780-d3c4cae15bbb",
+      "name": "Extract Test Prices",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MojbehK5KxNXlIwM",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1cAHAnKMKizqv_nWb3Jgfhn3juN29EX-XDVycM5uD0LU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Product_Prices",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        128
+      ],
+      "id": "c4bd1b25-5503-4820-8d6e-903b61bfa9d1",
+      "name": "Extract product Prices",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MojbehK5KxNXlIwM",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        928,
+        -48
+      ],
+      "id": "8c4eb76c-6934-46d4-9e46-5805392cf1bc",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const testPrices = $items().map(i => i.json);\nconst validatedInput = $node[\"Validate input\"].json;\n\n// Initialize array for matched tests\nlet matchedTests = [];\nlet totalTestCost = 0;\n\n// Loop through all tests in RFP summary\nif (Array.isArray(validatedInput.rfp_summary)) {\n  for (const testName of validatedInput.rfp_summary) {\n    // Find the test in the testPrices sheet\n    const test = testPrices.find(t => t.Test_Name === testName);\n\n    if (test) {\n      matchedTests.push({\n        test_name: test.Test_Name,\n        test_type: test.Test_Type,\n        unit_cost: Number(test.Unit_Cost),\n        duration_days: test[\"Duration (days)\"],\n      });\n\n      totalTestCost += Number(test.Unit_Cost);\n    } else {\n      console.log(`⚠️ Test not found in sheet: ${testName}`);\n    }\n  }\n}\n\n// Prepare final output\nconst output = {\n  rfp_id: validatedInput.rfp_id,\n  matched_tests: matchedTests,\n  total_test_cost: totalTestCost\n};\n\n\nreturn [{ json: output }];\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -176
+      ],
+      "id": "0c9e3694-41de-41a0-8549-23bbde09eaf0",
+      "name": "Filter the desired test prices"
+    },
+    {
+      "parameters": {
+        "jsCode": "const productPrices=$items();\nconst validatedInput=$node[\"Validate input\"].json;\n// const output = productPrices.map(item => {\n//   return {\n//     json: {\n//       SKU_ID: item.json.SKU_ID\n//     }\n//   };\n// });\n\n// return output;\n\n\n// return output;\n\n\n\nlet priceMatches = [];\n\n// --- Step 3: Loop through each line item in RFP technical_table ---\nfor (const line of validatedInput.technical_table) {\n  const recommendedProducts = line.recommended;\n\n  // Find matching SKUs in the Excel data\n  const matched = recommendedProducts.map(rec => {\n    const product = productPrices.find(p => p.json.SKU_ID == rec.sku);\n\n    // If found, return pricing + spec info\n    if (product) {\n      return {\n        sku: rec.sku,\n        spec_match: rec.spec_match,\n        product_name: product.json.Product_Name,\n        base_price: product.json.Base_Price,\n        unit: product.json.Unit_of_Measure,\n        product_type: product.json.Product_Type,\n        total_price: Number(product.json.Base_Price) * Number(line.quantity)\n      };\n    } else {\n      return {\n        sku: rec.sku,\n        spec_match: rec.spec_match,\n        product_name: \"NOT FOUND\",\n        base_price: null,\n        unit: null,\n        product_type: null,\n        total_price: 0\n      };\n    }\n  });\n\n  // Push results for this line item\n  priceMatches.push({\n    line_id: line.line_id,\n    scope_item: line.scope_item,\n    quantity: line.quantity,\n    recommended_pricing: matched\n  });\n}\n\n// --- Step 4: Output in n8n format ---\nreturn [\n  {\n    json: {\n      rfp_id: validatedInput.rfp_id,\n      pricing_table: priceMatches\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        128
+      ],
+      "id": "ef6869a5-1888-40bb-a839-2ccfa4646442",
+      "name": "Filter recommended SKUs prices"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect all input items (n8n gives them one-by-one)\nconst allInputs = $input.all();\n\n// Find the pricing and test data items\nlet pricingData = allInputs.find(item => item.json.pricing_table);\nlet testData = allInputs.find(item => item.json.matched_tests);\n\n// Safety check\nif (!pricingData && !testData) {\n  return [{ json: { error: \"No pricing_table or matched_tests found in input\" } }];\n}\n\n// Extract their JSON contents\npricingData = pricingData ? pricingData.json : {};\ntestData = testData ? testData.json : {};\n\n// --- Prepare Tables ---\nlet structuredProductTable = [];   // <-- 🆕 Structured table per line_id\nlet testPricingTable = [];\nlet totalMaterialCost = 0;\nlet totalTestCost = 0;\n\n// --- Product Pricing Table (structured) ---\nif (pricingData.pricing_table) {\n  for (const line of pricingData.pricing_table) {\n    const skuEntries = [];\n\n    for (const rec of line.recommended_pricing) {\n      skuEntries.push({\n        sku_id: rec.sku,\n        product_name: rec.product_name,\n        spec_match: rec.spec_match,\n        base_price: rec.base_price,\n        total_price: rec.total_price,\n        unit: rec.unit,\n        product_type: rec.product_type\n      });\n    }\n\n    // Add only the top SKU (first one) to total material cost\n    if (line.recommended_pricing?.length > 0) {\n      totalMaterialCost += Number(line.recommended_pricing[0].total_price);\n    }\n\n    // 🆕 Push structured object for each line_id\n    structuredProductTable.push({\n      line_id: line.line_id,\n      scope_item: line.scope_item,\n      quantity: line.quantity,\n      recommended_pricing: skuEntries\n    });\n  }\n}\n\n// --- Test Table ---\nif (testData.matched_tests) {\n  for (const t of testData.matched_tests) {\n    testPricingTable.push({\n      test_name: t.test_name,\n      test_type: t.test_type,\n      unit_cost: t.unit_cost,\n      duration_days: t.duration_days\n    });\n    totalTestCost += Number(t.unit_cost);\n  }\n}\n\n// --- Totals ---\nconst overallCost = totalMaterialCost + totalTestCost;\n\n// --- Final Output ---\nreturn [\n  {\n    json: {\n      rfp_id: pricingData.rfp_id || testData.rfp_id || \"Unknown\",\n      product_pricing_table: structuredProductTable,\n      test_pricing_table: testPricingTable,\n      summary: {\n        total_material_cost: totalMaterialCost,\n        total_test_cost: totalTestCost,\n        overall_project_cost: overallCost\n      }\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        -48
+      ],
+      "id": "b6e1bd6b-fad0-4198-a3b0-99cee02daefa",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Pricing Request": {
+      "main": [
+        [
+          {
+            "node": "Validate input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate input": {
+      "main": [
+        [
+          {
+            "node": "Extract Test Prices",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract product Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract product Prices": {
+      "main": [
+        [
+          {
+            "node": "Filter recommended SKUs prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Test Prices": {
+      "main": [
+        [
+          {
+            "node": "Filter the desired test prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter the desired test prices": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter recommended SKUs prices": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3879e0c8-32f5-4842-a0ef-a7b95af2cdcb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dc814ff1546ae4a0b938fe3286625c95eceedbb0137bcde2e4b1a2c2e96bead6"
+  },
+  "id": "GIwInynZuDP0iQTw",
+  "tags": []
+}
